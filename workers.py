@@ -15,10 +15,14 @@ class AIWorker(QObject):
         try:
             total_steps = 100
             for i in range(total_steps + 1):
-                # Use QThread.msleep for non-blocking delay.
-                delay_ms = int((0.005 * self.num_clips + random.random() * 0.005) * 1000)
-                QThread.msleep(delay_ms)
-                self.progress.emit(i)
+                # ## CHANGED: reduce UI event spamming
+                if i % 5 == 0:
+                    delay_ms = int((0.005 * self.num_clips + random.random() * 0.005) * 1000)
+                    QThread.msleep(delay_ms)
+                    self.progress.emit(i)
+                else:
+                    # Minimal sleep to avoid full CPU usage
+                    QThread.msleep(1)
         except Exception as e:
             logging.exception("Exception in AIWorker during '%s': %s", self.operation, e)
         finally:
@@ -32,9 +36,13 @@ class ExportWorker(QObject):
         try:
             total_steps = 100
             for i in range(total_steps + 1):
-                delay_ms = int((0.01 + random.random() * 0.01) * 1000)
-                QThread.msleep(delay_ms)
-                self.progress.emit(i)
+                # ## CHANGED: reduce event frequency
+                if i % 5 == 0:
+                    delay_ms = int((0.01 + random.random() * 0.01) * 1000)
+                    QThread.msleep(delay_ms)
+                    self.progress.emit(i)
+                else:
+                    QThread.msleep(1)
         except Exception as e:
             logging.exception("Exception in ExportWorker: %s", e)
         finally:
@@ -52,9 +60,12 @@ class BatchExportWorker(QObject):
         try:
             total_steps = 100 * self.num_exports
             for i in range(total_steps + 1):
-                delay_ms = int((0.005 + random.random() * 0.005) * 1000)
-                QThread.msleep(delay_ms)
-                self.progress.emit(int(i / total_steps * 100))
+                if i % 5 == 0:
+                    delay_ms = int((0.005 + random.random() * 0.005) * 1000)
+                    QThread.msleep(delay_ms)
+                    self.progress.emit(int(i / total_steps * 100))
+                else:
+                    QThread.msleep(1)
         except Exception as e:
             logging.exception("Exception in BatchExportWorker: %s", e)
         finally:
@@ -62,7 +73,6 @@ class BatchExportWorker(QObject):
 
 class SceneDetectionWorker(QObject):
     progress = pyqtSignal(int)
-    # Emits a list of subclip tuples: (MediaPoolItem, start, end)
     finished = pyqtSignal(list)
 
     def __init__(self, imported_items):
@@ -81,23 +91,21 @@ class SceneDetectionWorker(QObject):
                 continue
 
             try:
-                clip_name = (
-                    item.GetClipProperty("File Path")
-                    or item.GetClipProperty("Clip Name")
-                    or "Unknown"
-                )
                 # For demonstration, random duration between 20 and 60 seconds
                 duration = random.randint(20, 60)
-                if duration > 4:
-                    t1 = random.randint(2, duration - 2)
-                    t2 = random.randint(2, duration - 2)
-                    scene_changes = sorted([0, t1, t2, duration])
-                else:
-                    scene_changes = [0, duration]
+                # Create random scene splits
+                t1 = random.randint(2, duration - 2)
+                t2 = random.randint(2, duration - 2)
+                scene_changes = sorted([0, t1, t2, duration])
+
+                clip_name = (item.GetClipProperty("File Path")
+                             or item.GetClipProperty("Clip Name")
+                             or "Unknown")
                 logging.info(
                     "Clip '%s' (duration %s sec): Detected scene changes: %s",
                     clip_name, duration, scene_changes
                 )
+
                 for i in range(len(scene_changes) - 1):
                     start = scene_changes[i]
                     end = scene_changes[i + 1]
@@ -116,9 +124,13 @@ class SceneDetectionWorker(QObject):
                         continue
                     new_clips.append((item, start, end))
                     logging.info("Created subclip for '%s': %s to %s", clip_name, start, end)
+
             except Exception as e:
-                logging.exception("Error processing clip %s: %s", item, e)
+                logging.exception("Exception detecting scenes for clip: %s", e)
+
             progress_counter += 1
-            self.progress.emit(int((progress_counter / total_items) * 100))
+            # ## CHANGED: Emit progress less often
+            if progress_counter % 2 == 0:
+                self.progress.emit(int((progress_counter / total_items) * 100))
 
         self.finished.emit(new_clips)

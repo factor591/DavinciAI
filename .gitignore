@@ -1,0 +1,120 @@
+###############################################################################
+# WINDOWS SYSTEM FOLDERS
+###############################################################################
+Application Data/
+Cookies/
+Local Settings/
+My Documents/
+NetHood/
+PrintHood/
+Recent/
+SendTo/
+Start Menu/
+Templates/
+3D Objects/
+Desktop/
+Documents/
+Downloads/
+Favorites/
+Links/
+Music/
+OneDrive/
+Pictures/
+Saved Games/
+Searches/
+Videos/
+
+###############################################################################
+# HIDDEN CONFIG AND BUILD FOLDERS
+###############################################################################
+.android/
+.gradle/
+.bash_history
+.cursor-tutor-*
+.cursor/
+.docker/
+.dotnet/
+.emulator_console_auth_token
+
+###############################################################################
+# PYTHON
+###############################################################################
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Virtual Environments (often named "venv" or ".venv")
+env/
+venv/
+.venv/
+
+# Log files
+*.log
+
+###############################################################################
+# macOS (if someone uses Mac to interact with your repo)
+###############################################################################
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Thumbnails
+._*
+
+# Files that might appear in local storage
+.Spotlight-V100
+.Trashes
+desktop.ini
+
+###############################################################################
+# IDE / TEXT EDITOR FILES
+###############################################################################
+# Visual Studio Code
+.vscode/
+
+# JetBrains IDEs (PyCharm, IntelliJ, etc.)
+.idea/
+*.iml
+
+# Sublime Text
+*.sublime-workspace
+*.sublime-project
+
+###############################################################################
+# OTHER OPTIONAL IGNORES
+###############################################################################
+# Jupyter Notebooks checkpoints
+.ipynb_checkpoints/
+
+# Backup files often created by editors
+*~
+*.bak
+*.swp
+*.swo
+*.tmp
+
+###############################################################################
+# END OF FILE
+###############################################################################
