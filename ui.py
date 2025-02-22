@@ -3,17 +3,17 @@ import os
 import json
 import logging
 from PyQt6.QtWidgets import (
-    QApplication, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
+    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
     QFileDialog, QGridLayout, QFrame, QProgressBar, QDialog, QDialogButtonBox,
     QComboBox, QFormLayout, QCheckBox, QMessageBox, QSpinBox,
-    QScrollArea
+    QScrollArea, QMenuBar, QMenu
 )
-from PyQt6.QtGui import QDrag
-from PyQt6.QtCore import QMimeData, Qt, QUrl, QThread
+from PyQt6.QtGui import QDrag, QAction
+from PyQt6.QtCore import QMimeData, Qt, QUrl, QThread, QPoint
 from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput
 from PyQt6.QtMultimediaWidgets import QVideoWidget
 
-# Settings Dialog
+# Settings Dialog (unchanged)
 class SettingsDialog(QDialog):
     def __init__(self, current_settings, parent=None):
         super().__init__(parent)
@@ -99,7 +99,7 @@ class SettingsDialog(QDialog):
             "music_selection": self.music_combo.currentText()
         }
 
-# Export Dialog
+# Export Dialog (unchanged)
 class ExportDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -191,7 +191,7 @@ class ExportDialog(QDialog):
             "watermark": self.watermark_label.text() if self.watermark_checkbox.isChecked() else None
         }
 
-# Video Preview Widget with Drag & Drop
+# Video Preview Widget (unchanged)
 class VideoPreviewWidget(QFrame):
     def __init__(self, file_path, parent=None):
         super().__init__(parent)
@@ -285,8 +285,8 @@ class VideoPreviewWidget(QFrame):
             main_window.drag_source = None
         event.acceptProposedAction()
 
-# Main Application Widget
-class DroneVideoEditor(QWidget):
+# Main Application Widget updated to use QMainWindow with custom title bar & drag
+class DroneVideoEditor(QMainWindow):
     def __init__(self, backend, settings):
         super().__init__()
         self.backend = backend
@@ -295,6 +295,10 @@ class DroneVideoEditor(QWidget):
         self.imported_items = []  # Contains valid MediaPoolItem objects
         self.drag_source = None
         self.clip_count = 0
+        self.is_maximized = False
+        # For dragging the window around:
+        self.dragPos = QPoint()
+
         self.initUI()
 
     def createStyledButton(self, text, function):
@@ -302,13 +306,14 @@ class DroneVideoEditor(QWidget):
         button.clicked.connect(function)
         button.setStyleSheet("""
             QPushButton {
-                background-color: #324A5E;
-                border-radius: 8px;
+                background-color: #404040;
+                border-radius: 5px;
                 padding: 8px;
-                color: white;
+                color: #ffffff;
+                border: none;
             }
             QPushButton:hover {
-                background-color: #3A5875;
+                background-color: #505050;
             }
         """)
         return button
@@ -316,66 +321,159 @@ class DroneVideoEditor(QWidget):
     def initUI(self):
         self.setWindowTitle("Drone Video Editor")
         self.setGeometry(100, 100, 800, 600)
-        self.setStyleSheet("""
-            QWidget {
-                background-color: #1E2A38;
-                color: white;
-                font-size: 14px;
+        self.setStyleSheet("QMainWindow { background-color: #1E1E1E; color: #ffffff; font-size: 14px; }")
+
+        # Remove the OS title bar:
+        self.setWindowFlags(self.windowFlags() | Qt.WindowType.FramelessWindowHint)
+
+        # --- Create a custom top-bar that holds the QMenuBar + Window Control Buttons ---
+        top_bar = QWidget(self)
+        top_bar.setStyleSheet("background-color: #282828;")
+        top_bar_layout = QHBoxLayout(top_bar)
+        top_bar_layout.setContentsMargins(0, 0, 0, 0)
+        top_bar_layout.setSpacing(0)
+
+        # Let us drag the entire top_bar to move the window:
+        top_bar.mousePressEvent = self.topBarMousePressEvent
+        top_bar.mouseMoveEvent = self.topBarMouseMoveEvent
+
+        # Create the QMenuBar (manually, so we can place it in our layout)
+        menubar = QMenuBar(self)
+        menubar.setStyleSheet("""
+            QMenuBar { background-color: #282828; color: #ffffff; }
+            QMenuBar::item { background-color: #282828; color: #ffffff; padding: 5px 15px; }
+            QMenuBar::item:selected { background-color: #505050; }
+            QMenu { background-color: #282828; color: #ffffff; }
+            QMenu::item:selected { background-color: #505050; }
+        """)
+
+        # File Menu
+        file_menu = menubar.addMenu("File")
+        import_action = QAction("Import Media", self)
+        import_action.triggered.connect(self.importFootage)
+        save_action = QAction("Save Project", self)
+        save_action.triggered.connect(self.saveProject)
+        load_action = QAction("Load Project", self)
+        load_action.triggered.connect(self.loadProject)
+        exit_action = QAction("Exit", self)
+        exit_action.triggered.connect(self.close)
+        file_menu.addAction(import_action)
+        file_menu.addAction(save_action)
+        file_menu.addAction(load_action)
+        file_menu.addSeparator()
+        file_menu.addAction(exit_action)
+        
+        # Edit Menu
+        edit_menu = menubar.addMenu("Edit")
+        undo_action = QAction("Undo", self)
+        redo_action = QAction("Redo", self)
+        undo_action.triggered.connect(lambda: logging.info("Undo triggered"))
+        redo_action.triggered.connect(lambda: logging.info("Redo triggered"))
+        edit_menu.addAction(undo_action)
+        edit_menu.addAction(redo_action)
+        
+        # Additional Menus: View, Color, Fusion
+        menubar.addMenu("View")
+        menubar.addMenu("Color")
+        menubar.addMenu("Fusion")
+        
+        # Export Menu
+        export_menu = menubar.addMenu("Export")
+        export_action = QAction("Export Video", self)
+        export_action.triggered.connect(self.exportVideo)
+        export_menu.addAction(export_action)
+
+        # Add menubar to layout
+        top_bar_layout.addWidget(menubar)
+
+        # Stretch before the window controls
+        top_bar_layout.addStretch(1)
+
+        # --- Window Control Buttons ---
+        btn_minimize = QPushButton("—", self)
+        btn_minimize.setFixedSize(40, 28)
+        btn_minimize.setStyleSheet("""
+            QPushButton {
+                background-color: #282828;
+                color: #ffffff;
+                border: none;
+            }
+            QPushButton:hover {
+                background-color: #505050;
             }
         """)
-        self.setAcceptDrops(True)
-        main_layout = QVBoxLayout()
+        btn_minimize.clicked.connect(self.showMinimized)
+        top_bar_layout.addWidget(btn_minimize)
 
-        menubar_layout = QHBoxLayout()
-        save_button = self.createStyledButton("Save Project", self.saveProject)
-        load_button = self.createStyledButton("Load Project", self.loadProject)
-        settings_button = self.createStyledButton("Settings", self.openSettings)
-        menubar_layout.addWidget(save_button)
-        menubar_layout.addWidget(load_button)
-        menubar_layout.addStretch()
-        menubar_layout.addWidget(settings_button)
-        main_layout.addLayout(menubar_layout)
+        btn_maximize = QPushButton("□", self)
+        btn_maximize.setFixedSize(40, 28)
+        btn_maximize.setStyleSheet("""
+            QPushButton {
+                background-color: #282828;
+                color: #ffffff;
+                border: none;
+            }
+            QPushButton:hover {
+                background-color: #505050;
+            }
+        """)
+        btn_maximize.clicked.connect(self.toggleMaximize)
+        top_bar_layout.addWidget(btn_maximize)
 
+        btn_close = QPushButton("×", self)
+        btn_close.setFixedSize(40, 28)
+        btn_close.setStyleSheet("""
+            QPushButton {
+                background-color: #282828;
+                color: #ffffff;
+                border: none;
+            }
+            QPushButton:hover {
+                background-color: #FF4444;
+            }
+        """)
+        btn_close.clicked.connect(self.close)
+        top_bar_layout.addWidget(btn_close)
+
+        # This replaces the normal QMainWindow menu area with our custom widget
+        self.setMenuWidget(top_bar)
+
+        # --- Central Widget Layout ---
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
+        main_layout = QVBoxLayout(central_widget)
+        main_layout.setContentsMargins(10, 10, 10, 10)
+        main_layout.setSpacing(10)
+        
+        # Drag & Drop Area
         self.drop_area = QFrame(self)
         self.drop_area.setStyleSheet("""
-            QFrame {
-                background-color: #2B3B4E;
-                border-radius: 15px;
-                border: 2px dashed #506680;
-            }
+            QFrame { background-color: #1E1E1E; border: 2px dashed #555; border-radius: 10px; }
         """)
         self.drop_area.setFixedHeight(220)
         drop_layout = QVBoxLayout(self.drop_area)
-
         self.plus_label = QLabel("+", self.drop_area)
         self.plus_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.plus_label.setStyleSheet("font-size: 80px; font-weight: bold; color: rgba(255, 255, 255, 0.5);")
+        self.plus_label.setStyleSheet("font-size: 80px; font-weight: bold; color: #ffffff;")
         drop_layout.addWidget(self.plus_label)
-
+        
         self.scroll_area = QScrollArea(self.drop_area)
         self.scroll_area.setWidgetResizable(True)
         self.scroll_area.setStyleSheet("""
-            QScrollArea {
-                border: none;
-                background: transparent;
-            }
-            QScrollBar:vertical {
-                background: #2B3B4E;
-            }
+            QScrollArea { border: none; background: transparent; }
+            QScrollBar:vertical { background: #1E1E1E; }
         """)
         self.scroll_area.setFrameShape(QFrame.Shape.NoFrame)
-
         self.scroll_content = QWidget()
         self.scroll_content.setStyleSheet("background: transparent;")
         self.clip_layout = QGridLayout(self.scroll_content)
         self.clip_layout.setSpacing(10)
         self.scroll_content.setLayout(self.clip_layout)
-
         self.scroll_area.setWidget(self.scroll_content)
         drop_layout.addWidget(self.scroll_area)
-
         main_layout.addWidget(self.drop_area)
-
+        
+        # Button grid for various functionalities
         button_grid = QGridLayout()
         button_grid.setSpacing(10)
         buttons = [
@@ -397,25 +495,27 @@ class DroneVideoEditor(QWidget):
         button_widget = QWidget()
         button_widget.setLayout(button_grid)
         main_layout.addWidget(button_widget)
-
+        
         self.progress_bar = QProgressBar(self)
         self.progress_bar.setRange(0, 100)
         self.progress_bar.hide()
         main_layout.addWidget(self.progress_bar)
-
+        
         export_layout = QHBoxLayout()
         self.export_button = self.createStyledButton("Export Video", self.exportVideo)
         self.export_button.setFixedWidth(300)
+        # Updated export button style (flat dark gray with hover)
         self.export_button.setStyleSheet("""
             QPushButton {
-                background-color: #FF5733;
-                border-radius: 8px;
+                background-color: #404040;
+                border-radius: 5px;
                 padding: 16px;
                 font-weight: bold;
-                color: white;
+                color: #ffffff;
+                border: none;
             }
             QPushButton:hover {
-                background-color: #FF6B4A;
+                background-color: #505050;
             }
         """)
         export_layout.addStretch()
@@ -423,10 +523,27 @@ class DroneVideoEditor(QWidget):
         export_layout.addStretch()
         main_layout.addLayout(export_layout)
 
-        self.setLayout(main_layout)
+    def topBarMousePressEvent(self, event):
+        """Allow user to click on the top bar and begin dragging."""
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.dragPos = event.globalPosition().toPoint()
+
+    def topBarMouseMoveEvent(self, event):
+        """When user drags while holding left button, move the window."""
+        if event.buttons() & Qt.MouseButton.LeftButton:
+            self.move(self.pos() + event.globalPosition().toPoint() - self.dragPos)
+            self.dragPos = event.globalPosition().toPoint()
+
+    def toggleMaximize(self):
+        # Simple approach: if not maximized, maximize; else restore
+        if not self.isMaximized():
+            self.showMaximized()
+        else:
+            self.showNormal()
 
     def addClipPreview(self, file_path):
-        self.plus_label.hide()
+        if self.plus_label.isVisible():
+            self.plus_label.hide()
         preview_widget = VideoPreviewWidget(file_path)
         preview_widget.remove_button.clicked.connect(lambda: self.removeClip(preview_widget))
         row = self.clip_count // 4
@@ -434,7 +551,8 @@ class DroneVideoEditor(QWidget):
         self.clip_layout.addWidget(preview_widget, row, col)
         self.preview_widgets.append(preview_widget)
         self.clip_count += 1
-        logging.info("Added clip: %s", file_path)
+        # Optionally call the backend to import media:
+        self.backend.import_media([file_path])
 
     def removeClip(self, preview_widget):
         try:

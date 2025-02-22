@@ -606,3 +606,11 @@ TypeError: 'NoneType' object is not callable
 2025-02-20 18:54:28,819 - INFO - Skipping segment from 3 to 4 (duration 1 sec) as too short.
 2025-02-20 18:54:28,820 - INFO - Created subclip for 'C:\Users\garre\Videos\Test Shoot\20250220_153140.mp4': 4 to 35
 2025-02-20 18:54:28,822 - ERROR - The AddSubClip method is not available in this version of the DaVinci Resolve API.
+2025-02-21 21:35:42,793 - INFO - Connected to DaVinci Resolve on attempt 1.
+2025-02-21 21:39:54,441 - INFO - Connected to DaVinci Resolve on attempt 1.
+2025-02-21 21:40:03,261 - INFO - Connected to DaVinci Resolve on attempt 1.
+2025-02-21 21:41:06,068 - INFO - Connected to DaVinci Resolve on attempt 1.
+2025-02-21 21:42:59,886 - INFO - Connected to DaVinci Resolve on attempt 1.
+2025-02-21 21:44:22,095 - INFO - Connected to DaVinci Resolve on attempt 1.
+2025-02-21 21:46:35,700 - INFO - Connected to DaVinci Resolve on attempt 1.
+2025-02-21 22:03:28,036 - INFO - Connected to DaVinci Resolve on attempt 1.
