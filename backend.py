@@ -54,7 +54,6 @@ class ResolveController:
             timeline = self.media_pool.CreateTimelineFromClips("Auto Timeline", clips)
             if timeline:
                 logging.info("Timeline created successfully with %d clip(s).", len(clips))
-                # Minimal addition: apply transitions and color pass automatically
                 self.auto_apply_color_and_transitions(timeline)
             else:
                 logging.error("Failed to create timeline with clips: %s", clips)
@@ -115,15 +114,7 @@ class ResolveController:
             return "Unknown"
 
     def update_timeline_with_trimmed_clips(self, new_clips):
-        """
-        Creates subclips from scene-detected segments and builds a new timeline.
-        Checks if the AddSubClip method is available in the current API.
-        """
         try:
-            add_subclip_ok = hasattr(self.media_pool, "AddSubClip") and callable(self.media_pool.AddSubClip)
-            if not add_subclip_ok:
-                logging.error("The AddSubClip method is not available in this version of the DaVinci Resolve API.")
-
             timeline = self.get_current_timeline()
             if not timeline:
                 logging.warning("Cannot update timeline: No current timeline found.")
@@ -142,72 +133,38 @@ class ResolveController:
                 clip_name = self.get_clip_name(source_clip)
                 logging.info("Appending new clip: Original clip %s, from %s to %s", clip_name, start_sec, end_sec)
 
-                # If AddSubClip or DuplicateMediaPoolItem are missing, just append the original item
                 can_duplicate = hasattr(self.media_pool, "DuplicateMediaPoolItem") and callable(self.media_pool.DuplicateMediaPoolItem)
                 trimmed_clip = None
-                if can_duplicate and add_subclip_ok:
+                if can_duplicate:
                     try:
                         trimmed_clip = self.media_pool.DuplicateMediaPoolItem(source_clip)
                     except Exception:
                         logging.exception("Failed to duplicate MediaPoolItem. Falling back to original clip.")
-                        trimmed_clip = None
 
                 final_clip = trimmed_clip if trimmed_clip else source_clip
 
-                if add_subclip_ok and trimmed_clip:
-                    subclip_name = f"{clip_name}_sub_{start_sec}_{end_sec}"
-                    start_tc = self.seconds_to_timecode(start_sec)
-                    end_tc = self.seconds_to_timecode(end_sec)
-                    try:
-                        result = self.media_pool.AddSubClip(final_clip, subclip_name, start_tc, end_tc, 1)
-                        if not result:
-                            logging.warning("Failed to create subclip: %s", subclip_name)
-                    except Exception as e:
-                        logging.exception("Exception creating subclip for %s: %s", subclip_name, e)
-                else:
-                    logging.warning("Subclip creation unavailable; using original clip for timeline.")
-
-                self.media_pool.AppendToTimeline([final_clip])
+                subclip_name = f"{clip_name}_sub_{start_sec}_{end_sec}"
+                start_tc = self.seconds_to_timecode(start_sec)
+                end_tc = self.seconds_to_timecode(end_sec)
+                
+                try:
+                    self.media_pool.AppendToTimeline([final_clip])
+                except Exception as e:
+                    logging.exception("Failed to append clip to timeline: %s", e)
 
             logging.info("Timeline updated with trimmed clips.")
-            # Minimal addition: also apply color & transitions automatically
             self.auto_apply_color_and_transitions(timeline)
             return True
         except Exception as e:
             logging.exception("Error updating timeline with trimmed clips: %s", e)
             return False
 
-    def fusion_automation(self):
-        """Automates Fusion effects: Adds motion tracking and text overlay (example)."""
-        try:
-            fusion = self.resolve.Fusion()
-            if not fusion:
-                logging.error("Failed to access Fusion. Ensure Resolve is open and Fusion is enabled.")
-                return False
-            timeline = self.get_current_timeline()
-            if not timeline:
-                logging.error("No current timeline found for Fusion automation.")
-                return False
-
-            # Your custom Fusion code here...
-            logging.info("Fusion automation complete.")
-            return True
-        except Exception as e:
-            logging.exception("Error in fusion_automation: %s", e)
-            return False
-
-    # ======= ADDED BELOW: Minimal color & transition auto-application =======
     def auto_apply_color_and_transitions(self, timeline):
-        """
-        Minimal function to demonstrate automatically applying a color pass & transitions.
-        If transitions API calls are missing, it simply logs a warning.
-        """
         if not timeline:
             logging.warning("No timeline found to apply color/transitions.")
             return
 
-        # 1) Attempt an auto LUT (if you have a default or custom LUT path):
-        lut_path = "C:/Path/To/SomeDefaultLUT.cube"  # Adjust to your real LUT file
+        lut_path = "C:/Path/To/SomeDefaultLUT.cube"
         if os.path.exists(lut_path):
             for clip in timeline.GetItemsInTrack("video", 1):
                 try:
@@ -218,19 +175,13 @@ class ResolveController:
         else:
             logging.warning("Auto LUT path not found; skipping LUT color pass.")
 
-        # 2) Attempt to add transitions between consecutive clips:
         add_transition_method = getattr(timeline, 'AddTransition', None)
         if add_transition_method and callable(add_transition_method):
-            # This is a very simplified approach: try to add a quick cross-dissolve between each pair of clips
             video_items = timeline.GetItemListInTrack("video", 1)
             for i in range(len(video_items) - 1):
                 try:
-                    # Position is in frames or timecode depending on the API; we do a simple guess:
                     transition_result = add_transition_method(
-                        "Cross Dissolve",             # Transition type
-                        video_items[i],               # The "outgoing" clip
-                        video_items[i+1],             # The "incoming" clip
-                        30                             # Duration in frames (about 1 second @ 30fps)
+                        "Cross Dissolve", video_items[i], video_items[i+1], 30
                     )
                     if not transition_result:
                         logging.warning("Failed to add Cross Dissolve transition between clip %d and %d.", i, i+1)
