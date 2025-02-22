@@ -1,17 +1,28 @@
 import sys
-from PyQt6.QtWidgets import QApplication
+import logging
+from PyQt6.QtWidgets import QApplication, QMessageBox
+
 from ui import DroneVideoEditor
 from backend import ResolveController
 from config import DEFAULT_SETTINGS
-import logging
 
 def main():
+    # Attempt to initialize ResolveController
     try:
         backend = ResolveController()
     except Exception as e:
         logging.critical("Fatal error initializing backend: %s", e)
-        sys.exit("A fatal error occurred. Check the log for details.")
+        # We need a QApplication to show message boxes, so create it here:
+        app = QApplication(sys.argv)
+        QMessageBox.critical(
+            None, 
+            "Resolve Error",
+            "Cannot initialize DaVinci Resolve.\n"
+            "Check if DaVinci Resolve is running or if fusionscript.dll is present."
+        )
+        sys.exit(1)
 
+    # If successful, proceed with the main application
     app = QApplication(sys.argv)
     editor = DroneVideoEditor(backend, DEFAULT_SETTINGS)
     editor.show()

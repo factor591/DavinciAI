@@ -1,5 +1,6 @@
 import sys
 import os
+import logging  # ADDED
 
 def load_dynamic(module_name, file_path):
     if sys.version_info[0] >= 3 and sys.version_info[1] >= 5:
@@ -23,7 +24,8 @@ def load_dynamic(module_name, file_path):
 script_module = None
 try:
     import fusionscript as script_module
-except ImportError:
+except ImportError as e:
+    logging.warning("Could not directly import fusionscript: %s", e)  # ADDED
     # Look for installer based environment variables:
     lib_path = os.getenv("RESOLVE_SCRIPT_LIB")
     if lib_path:
@@ -31,6 +33,7 @@ except ImportError:
             script_module = load_dynamic("fusionscript", lib_path)
         except ImportError:
             pass
+
     if not script_module:
         # Look for default install locations:
         path = ""
@@ -43,9 +46,15 @@ except ImportError:
         elif sys.platform.startswith("linux"):
             path = "/opt/resolve/libs/Fusion/"
 
-        script_module = load_dynamic("fusionscript", path + "fusionscript" + ext)
+        try:
+            script_module = load_dynamic("fusionscript", path + "fusionscript" + ext)
+        except ImportError as e2:
+            logging.warning("Secondary attempt to load fusionscript also failed: %s", e2)  # ADDED
 
 if script_module:
     sys.modules[__name__] = script_module
 else:
-    raise ImportError("Could not locate module dependencies")
+    raise ImportError(
+        "Could not locate fusionscript. Ensure DaVinci Resolve is installed, "
+        "or set RESOLVE_SCRIPT_LIB to the correct DLL path."
+    )
