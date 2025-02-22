@@ -1,7 +1,6 @@
-import time
 import random
 import logging
-from PyQt6.QtCore import QObject, pyqtSignal
+from PyQt6.QtCore import QObject, pyqtSignal, QThread
 
 class AIWorker(QObject):
     progress = pyqtSignal(int)
@@ -16,7 +15,9 @@ class AIWorker(QObject):
         try:
             total_steps = 100
             for i in range(total_steps + 1):
-                time.sleep(0.005 * self.num_clips + random.random() * 0.005)
+                # Use QThread.msleep for non-blocking delay.
+                delay_ms = int((0.005 * self.num_clips + random.random() * 0.005) * 1000)
+                QThread.msleep(delay_ms)
                 self.progress.emit(i)
         except Exception as e:
             logging.exception("Exception in AIWorker during '%s': %s", self.operation, e)
@@ -31,7 +32,8 @@ class ExportWorker(QObject):
         try:
             total_steps = 100
             for i in range(total_steps + 1):
-                time.sleep(0.01 + random.random() * 0.01)
+                delay_ms = int((0.01 + random.random() * 0.01) * 1000)
+                QThread.msleep(delay_ms)
                 self.progress.emit(i)
         except Exception as e:
             logging.exception("Exception in ExportWorker: %s", e)
@@ -50,7 +52,8 @@ class BatchExportWorker(QObject):
         try:
             total_steps = 100 * self.num_exports
             for i in range(total_steps + 1):
-                time.sleep(0.005 + random.random() * 0.005)
+                delay_ms = int((0.005 + random.random() * 0.005) * 1000)
+                QThread.msleep(delay_ms)
                 self.progress.emit(int(i / total_steps * 100))
         except Exception as e:
             logging.exception("Exception in BatchExportWorker: %s", e)
@@ -71,7 +74,6 @@ class SceneDetectionWorker(QObject):
         total_items = len(self.imported_items)
         progress_counter = 0
         for item in self.imported_items:
-            # Verify the item is a valid MediaPoolItem
             if not hasattr(item, "GetClipProperty"):
                 logging.warning("Skipping invalid item in scene detection: %s", type(item))
                 progress_counter += 1
@@ -79,8 +81,12 @@ class SceneDetectionWorker(QObject):
                 continue
 
             try:
-                clip_name = item.GetClipProperty("File Path") or item.GetClipProperty("Clip Name") or "Unknown"
-                # For demonstration, assume a random duration between 20 and 60 seconds
+                clip_name = (
+                    item.GetClipProperty("File Path")
+                    or item.GetClipProperty("Clip Name")
+                    or "Unknown"
+                )
+                # For demonstration, random duration between 20 and 60 seconds
                 duration = random.randint(20, 60)
                 if duration > 4:
                     t1 = random.randint(2, duration - 2)
@@ -88,16 +94,25 @@ class SceneDetectionWorker(QObject):
                     scene_changes = sorted([0, t1, t2, duration])
                 else:
                     scene_changes = [0, duration]
-                logging.info("Clip '%s' (duration %s sec): Detected scene changes: %s", clip_name, duration, scene_changes)
+                logging.info(
+                    "Clip '%s' (duration %s sec): Detected scene changes: %s",
+                    clip_name, duration, scene_changes
+                )
                 for i in range(len(scene_changes) - 1):
                     start = scene_changes[i]
-                    end = scene_changes[i+1]
+                    end = scene_changes[i + 1]
                     segment_duration = end - start
                     if segment_duration < 2:
-                        logging.info("Skipping segment from %s to %s (duration %s sec) as too short.", start, end, segment_duration)
+                        logging.info(
+                            "Skipping segment from %s to %s (duration %s sec) as too short.",
+                            start, end, segment_duration
+                        )
                         continue
                     if random.random() < 0.1:
-                        logging.info("Skipping segment from %s to %s as dark/empty scene.", start, end)
+                        logging.info(
+                            "Skipping segment from %s to %s as dark/empty scene.",
+                            start, end
+                        )
                         continue
                     new_clips.append((item, start, end))
                     logging.info("Created subclip for '%s': %s to %s", clip_name, start, end)
@@ -105,4 +120,5 @@ class SceneDetectionWorker(QObject):
                 logging.exception("Error processing clip %s: %s", item, e)
             progress_counter += 1
             self.progress.emit(int((progress_counter / total_items) * 100))
+
         self.finished.emit(new_clips)

@@ -1,4 +1,6 @@
 import sys
+
+# Adjust path to point to your Resolve Scripting Modules if needed:
 sys.path.append("C:\\ProgramData\\Blackmagic Design\\DaVinci Resolve\\Support\\Developer\\Scripting\\Modules")
 
 try:

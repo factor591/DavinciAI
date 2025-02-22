@@ -614,3 +614,22 @@ TypeError: 'NoneType' object is not callable
 2025-02-21 21:44:22,095 - INFO - Connected to DaVinci Resolve on attempt 1.
 2025-02-21 21:46:35,700 - INFO - Connected to DaVinci Resolve on attempt 1.
 2025-02-21 22:03:28,036 - INFO - Connected to DaVinci Resolve on attempt 1.
+2025-02-22 09:29:44,074 - INFO - __init__ - Connected to DaVinci Resolve on attempt 1.
+2025-02-22 09:38:28,339 - INFO - __init__ - Connected to DaVinci Resolve on attempt 1.
+2025-02-22 09:41:10,987 - INFO - __init__ - Connected to DaVinci Resolve on attempt 1.
+2025-02-22 09:45:17,179 - INFO - __init__ - Connected to DaVinci Resolve on attempt 1.
+2025-02-22 09:49:50,063 - INFO - __init__ - Connected to DaVinci Resolve on attempt 1.
+2025-02-22 09:50:05,375 - INFO - __init__ - Connected to DaVinci Resolve on attempt 1.
+2025-02-22 09:54:29,583 - INFO - __init__ - Connected to DaVinci Resolve on attempt 1.
+2025-02-22 09:54:31,453 - INFO - handleImportFootage - Import Footage clicked.
+2025-02-22 09:54:32,678 - INFO - handleCreateTimeline - Create Timeline clicked.
+2025-02-22 09:54:33,124 - INFO - handleSceneDetection - AI Scene Detection clicked.
+2025-02-22 09:58:21,999 - INFO - __init__ - Connected to DaVinci Resolve on attempt 1.
+2025-02-22 09:58:30,237 - INFO - __init__ - Connected to DaVinci Resolve on attempt 1.
+2025-02-22 09:58:32,762 - WARNING - createTimeline - No clips available to create a timeline.
+2025-02-22 09:58:52,067 - INFO - import_media - Imported media: ['C:/Users/garre/Videos/tiktak.mov', 'C:/Users/garre/Videos/Will Hepburn BTS.mov']
+2025-02-22 09:58:55,624 - INFO - importFootage - Imported item type: <class 'BlackmagicFusion.PyRemoteObject'>, name: tiktak.mov
+2025-02-22 09:58:55,656 - INFO - importFootage - Imported item type: <class 'BlackmagicFusion.PyRemoteObject'>, name: Will Hepburn BTS.mov
+2025-02-22 09:58:55,914 - INFO - import_media - Imported media: ['C:/Users/garre/Videos/tiktak.mov']
+2025-02-22 09:58:55,927 - INFO - import_media - Imported media: ['C:/Users/garre/Videos/Will Hepburn BTS.mov']
+2025-02-22 09:58:58,555 - INFO - create_timeline - Timeline created successfully with 2 clip(s).

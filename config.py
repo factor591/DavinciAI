@@ -1,12 +1,12 @@
 import logging
 import os
 
-# Logging configuration
+# Enhanced logging configuration with function names and timestamps.
 LOG_FILE = 'drone_video_editor.log'
 logging.basicConfig(
     filename=LOG_FILE,
     level=logging.DEBUG,
-    format='%(asctime)s - %(levelname)s - %(message)s'
+    format='%(asctime)s - %(levelname)s - %(funcName)s - %(message)s'
 )
 console = logging.StreamHandler()
 console.setLevel(logging.INFO)

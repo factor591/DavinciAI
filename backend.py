@@ -25,7 +25,10 @@ class ResolveController:
 
         try:
             self.project_manager = self.resolve.GetProjectManager()
-            self.project = self.project_manager.GetCurrentProject() or self.project_manager.CreateProject("Drone Edit Project")
+            self.project = (
+                self.project_manager.GetCurrentProject()
+                or self.project_manager.CreateProject("Drone Edit Project")
+            )
             self.media_pool = self.project.GetMediaPool()
         except Exception as e:
             logging.critical("Error initializing project: %s", e)
@@ -90,56 +93,70 @@ class ResolveController:
         f = frames % fps
         return f"{h:02d}:{m:02d}:{s:02d}:{f:02d}"
 
+    def get_clip_name(self, clip_item):
+        """
+        Helper to robustly retrieve a clip name from multiple metadata sources.
+        """
+        try:
+            if not hasattr(clip_item, "GetClipProperty"):
+                logging.warning("Clip item of type %s lacks GetClipProperty.", type(clip_item))
+                return "Unknown"
+
+            name = clip_item.GetClipProperty("File Path")
+            if not name:
+                name = clip_item.GetClipProperty("Clip Name")
+            if not name:
+                try:
+                    name = clip_item.GetName()
+                except Exception:
+                    name = None
+            if not name:
+                name = "Unknown"
+            return name
+        except Exception as e:
+            logging.exception("Error in get_clip_name: %s", e)
+            return "Unknown"
+
     def update_timeline_with_trimmed_clips(self, new_clips):
         """
         Creates subclips from scene-detected segments and builds a new timeline.
-        First checks if the AddSubClip method is available in the current API.
+        Checks if the AddSubClip method is available in the current API.
         """
         try:
-            # Verify that AddSubClip exists and is callable
             if not hasattr(self.media_pool, "AddSubClip") or not callable(self.media_pool.AddSubClip):
                 logging.error("The AddSubClip method is not available in this version of the DaVinci Resolve API.")
                 return False
 
             trimmed_items = []
             for clip_item, start, end in new_clips:
-                # Attempt to retrieve a file name from several properties
-                file_name = None
-                try:
-                    file_name = clip_item.GetClipProperty("File Path")
-                except Exception:
-                    pass
-                if not file_name:
-                    try:
-                        file_name = clip_item.GetClipProperty("Clip Name")
-                    except Exception:
-                        pass
-                if not file_name:
-                    try:
-                        file_name = clip_item.GetName()
-                    except Exception:
-                        pass
-                if not file_name:
-                    file_name = "Unknown"
-
+                file_name = self.get_clip_name(clip_item)
                 subclip_name = f"Scene_{file_name}_{start}_{end}"
                 start_tc = self.seconds_to_timecode(start)
-                end_tc   = self.seconds_to_timecode(end)
+                end_tc = self.seconds_to_timecode(end)
                 try:
                     subclip = self.media_pool.AddSubClip(
                         clip_item,
                         subclip_name,
                         start_tc,
                         end_tc,
-                        1  # track index or additional parameters as needed
+                        1
                     )
                     if subclip:
-                        logging.info("Created subclip '%s' from %s to %s for clip '%s'.", 
-                                     subclip_name, start_tc, end_tc, file_name)
+                        logging.info(
+                            "Created subclip '%s' from %s to %s for clip '%s'.",
+                            subclip_name,
+                            start_tc,
+                            end_tc,
+                            file_name
+                        )
                         trimmed_items.append(subclip)
                     else:
-                        logging.error("Failed to create subclip from %s to %s for clip '%s'.", 
-                                      start_tc, end_tc, file_name)
+                        logging.error(
+                            "Failed to create subclip from %s to %s for clip '%s'.",
+                            start_tc,
+                            end_tc,
+                            file_name
+                        )
                 except Exception as e:
                     logging.exception("Exception creating subclip for clip '%s': %s", file_name, e)
 
@@ -149,7 +166,10 @@ class ResolveController:
 
             timeline = self.media_pool.CreateTimelineFromClips("Scene Detection Timeline", trimmed_items)
             if timeline:
-                logging.info("Scene Detection Timeline created successfully with %d subclip(s).", len(trimmed_items))
+                logging.info(
+                    "Scene Detection Timeline created successfully with %d subclip(s).",
+                    len(trimmed_items)
+                )
                 return True
             else:
                 logging.error("Failed to create timeline from subclips.")
@@ -158,23 +178,33 @@ class ResolveController:
             logging.exception("Error updating timeline with trimmed clips: %s", e)
             return False
 
-    def export_video(self, render_settings):
+    def export_video(self, user_settings):
+        """
+        Dynamically set render settings based on user selections and start rendering.
+        """
         try:
+            render_settings = {
+                "Format": user_settings["export_format"],
+                "Resolution": user_settings["export_resolution"]
+            }
             if self.project.SetRenderSettings(render_settings):
                 if self.project.StartRendering():
-                    logging.info("Rendering started...")
+                    logging.info("Rendering started with settings: %s", render_settings)
                     return True
                 else:
-                    logging.error("Failed to start rendering. Check your render settings.")
+                    logging.error("Failed to start rendering. Check your render settings: %s", render_settings)
                     return False
             else:
-                logging.error("Failed to set render settings.")
+                logging.error("Failed to set render settings: %s", render_settings)
                 return False
         except Exception as e:
             logging.exception("Export error: %s", e)
             return False
 
     def fusion_automation(self):
+        """
+        Automates Fusion effects by adding a motion tracker and a text overlay.
+        """
         try:
             fusion = self.resolve.Fusion()
             if not fusion:
@@ -186,52 +216,29 @@ class ResolveController:
 
         timeline = self.get_current_timeline()
         if not timeline:
-            logging.error("No timeline found for Fusion automation.")
-            return False
-
-        clip = timeline.GetItemByIndex(1)
-        if not clip:
-            logging.error("No clip found in the timeline for Fusion automation.")
-            return False
-
-        fusion_comp = clip.GetFusionCompByIndex(1)
-        if not fusion_comp:
-            logging.error("No Fusion composition found for this clip.")
+            logging.error("No current timeline found for Fusion automation.")
             return False
 
         try:
-            text_node = fusion_comp.AddTool("TextPlus")
-            text_node["StyledText"] = "AI Edited Drone Footage"
-            text_node["Font"] = "Arial"
-            text_node["Size"] = 0.1
-            logging.info("Text overlay added in Fusion.")
+            fusion_comp = fusion.NewComp()
+            logging.info("Created new Fusion composition for automation.")
         except Exception as e:
-            logging.exception("Error adding text overlay: %s", e)
-        try:
-            stabilizer = fusion_comp.AddTool("Tracker")
-            stabilizer["Operation"] = "Stabilize"
-            logging.info("AI Stabilization applied in Fusion.")
-        except Exception as e:
-            logging.exception("Error applying stabilization: %s", e)
-        try:
-            tracker = fusion_comp.AddTool("Tracker")
-            tracker["TrackForward"] = True
-            tracker["AdaptiveMode"] = "Best Match"
-            logging.info("Motion tracking enabled in Fusion.")
-        except Exception as e:
-            logging.exception("Error enabling motion tracking: %s", e)
-        try:
-            fusion_comp.Save()
-            logging.info("Fusion composition saved successfully.")
-            return True
-        except Exception as e:
-            logging.exception("Error saving Fusion composition: %s", e)
+            logging.exception("Error creating Fusion composition: %s", e)
             return False
 
-    def get_lut_path(self, lut_name):
-        lut_directory = os.path.join(os.getcwd(), "LUTs")
-        lut_files = {
-            "Cinematic": os.path.join(lut_directory, "cinematic.cube"),
-            "Vintage": os.path.join(lut_directory, "vintage.cube")
-        }
-        return lut_files.get(lut_name, None)
+        # Automate motion tracking
+        try:
+            tracker_tool = fusion_comp.AddTool("Tracker")
+            logging.info("Motion tracker tool added to Fusion composition.")
+        except Exception as e:
+            logging.exception("Error adding Tracker tool: %s", e)
+
+        # Automate text overlay
+        try:
+            text_tool = fusion_comp.AddTool("TextPlus")
+            text_tool.StyledText = "AI Edited Drone Footage"
+            logging.info("Text overlay tool added with 'AI Edited Drone Footage'.")
+        except Exception as e:
+            logging.exception("Error adding TextPlus tool: %s", e)
+
+        return True
