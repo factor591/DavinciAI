@@ -1,4 +1,3 @@
-import sys
 import os
 import json
 import logging
@@ -12,6 +11,10 @@ from PyQt6.QtGui import QDrag, QAction
 from PyQt6.QtCore import QMimeData, Qt, QUrl, QThread, QPoint
 from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput
 from PyQt6.QtMultimediaWidgets import QVideoWidget
+
+from config import DEFAULT_SETTINGS
+from backend import ResolveController
+from workers import AIWorker, SceneDetectionWorker, ExportWorker, BatchExportWorker
 
 # Settings Dialog (unchanged)
 class SettingsDialog(QDialog):
@@ -285,7 +288,6 @@ class VideoPreviewWidget(QFrame):
             main_window.drag_source = None
         event.acceptProposedAction()
 
-# Main Application Widget updated to use QMainWindow with custom title bar & drag
 class DroneVideoEditor(QMainWindow):
     def __init__(self, backend, settings):
         super().__init__()
@@ -362,7 +364,7 @@ class DroneVideoEditor(QMainWindow):
         file_menu.addAction(load_action)
         file_menu.addSeparator()
         file_menu.addAction(exit_action)
-        
+
         # Edit Menu
         edit_menu = menubar.addMenu("Edit")
         undo_action = QAction("Undo", self)
@@ -371,12 +373,12 @@ class DroneVideoEditor(QMainWindow):
         redo_action.triggered.connect(lambda: logging.info("Redo triggered"))
         edit_menu.addAction(undo_action)
         edit_menu.addAction(redo_action)
-        
+
         # Additional Menus: View, Color, Fusion
         menubar.addMenu("View")
         menubar.addMenu("Color")
         menubar.addMenu("Fusion")
-        
+
         # Export Menu
         export_menu = menubar.addMenu("Export")
         export_action = QAction("Export Video", self)
@@ -444,63 +446,64 @@ class DroneVideoEditor(QMainWindow):
         main_layout = QVBoxLayout(central_widget)
         main_layout.setContentsMargins(10, 10, 10, 10)
         main_layout.setSpacing(10)
-        
+
         # Drag & Drop Area
         self.drop_area = QFrame(self)
         self.drop_area.setStyleSheet("""
-            QFrame { background-color: #1E1E1E; border: 2px dashed #555; border-radius: 10px; }
+            QFrame { 
+                background-color: #2C2C2C; 
+                border: 2px dashed #555; 
+                border-radius: 10px;
+                margin: 5px 0;
+            }
         """)
-        self.drop_area.setFixedHeight(220)
-        drop_layout = QVBoxLayout(self.drop_area)
-        self.plus_label = QLabel("+", self.drop_area)
+        self.drop_area.setAcceptDrops(True)
+        self.drop_area.setMinimumHeight(140)
+        self.drop_area_layout = QVBoxLayout(self.drop_area)
+        self.drop_area_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.plus_label = QLabel("+\nDrag & Drop Footage\nor use File > Import", self.drop_area)
+        self.plus_label.setStyleSheet("font-size: 24px; color: #777;")
         self.plus_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.plus_label.setStyleSheet("font-size: 80px; font-weight: bold; color: #ffffff;")
-        drop_layout.addWidget(self.plus_label)
-        
-        self.scroll_area = QScrollArea(self.drop_area)
-        self.scroll_area.setWidgetResizable(True)
-        self.scroll_area.setStyleSheet("""
-            QScrollArea { border: none; background: transparent; }
-            QScrollBar:vertical { background: #1E1E1E; }
-        """)
-        self.scroll_area.setFrameShape(QFrame.Shape.NoFrame)
-        self.scroll_content = QWidget()
-        self.scroll_content.setStyleSheet("background: transparent;")
-        self.clip_layout = QGridLayout(self.scroll_content)
-        self.clip_layout.setSpacing(10)
-        self.scroll_content.setLayout(self.clip_layout)
-        self.scroll_area.setWidget(self.scroll_content)
-        drop_layout.addWidget(self.scroll_area)
+        self.drop_area_layout.addWidget(self.plus_label)
         main_layout.addWidget(self.drop_area)
-        
-        # Button grid for various functionalities
+
+        # Grid layout for clip previews
+        self.clip_layout = QGridLayout()
+        main_layout.addLayout(self.clip_layout)
+
+        # Buttons row
         button_grid = QGridLayout()
         button_grid.setSpacing(10)
+
+        create_timeline_btn = self.createStyledButton("Create Timeline", self.createTimeline)
+        scene_detection_btn = self.createStyledButton("AI Scene Detection", self.detectScenes)
+        button_grid.addWidget(create_timeline_btn, 0, 0)
+        button_grid.addWidget(scene_detection_btn, 0, 1)
+
+        # Additional AI operations
         buttons = [
-            ("Import Footage", self.importFootage),
-            ("Create Timeline", self.createTimeline),
             ("AI Auto Color", self.autoColorGrade),
             ("AI Smart Reframe", self.applySmartReframe),
-            ("AI Scene Detection", self.detectScenes),
             ("AI Noise Reduction", self.applyNoiseReduction),
             ("AI Voice Isolation", self.applyVoiceIsolation),
-            ("Smart Highlight", self.smartHighlight),
+            ("AI Smart Highlight", self.smartHighlight),
             ("AI Audio Enhancements", self.aiAudioEnhancements),
             ("AI Music Sync", self.aiMusicSync),
             ("Fusion Automation", self.applyFusionEffects)
         ]
         for i, (text, func) in enumerate(buttons):
             btn = self.createStyledButton(text, func)
-            button_grid.addWidget(btn, i // 3, i % 3)
+            button_grid.addWidget(btn, i // 3 + 1, i % 3)  # offset row
+
         button_widget = QWidget()
         button_widget.setLayout(button_grid)
         main_layout.addWidget(button_widget)
-        
+
         self.progress_bar = QProgressBar(self)
         self.progress_bar.setRange(0, 100)
         self.progress_bar.hide()
         main_layout.addWidget(self.progress_bar)
-        
+
         export_layout = QHBoxLayout()
         self.export_button = self.createStyledButton("Export Video", self.exportVideo)
         self.export_button.setFixedWidth(300)
@@ -540,33 +543,6 @@ class DroneVideoEditor(QMainWindow):
             self.showMaximized()
         else:
             self.showNormal()
-
-    def addClipPreview(self, file_path):
-        if self.plus_label.isVisible():
-            self.plus_label.hide()
-        preview_widget = VideoPreviewWidget(file_path)
-        preview_widget.remove_button.clicked.connect(lambda: self.removeClip(preview_widget))
-        row = self.clip_count // 4
-        col = self.clip_count % 4
-        self.clip_layout.addWidget(preview_widget, row, col)
-        self.preview_widgets.append(preview_widget)
-        self.clip_count += 1
-        # Optionally call the backend to import media:
-        self.backend.import_media([file_path])
-
-    def removeClip(self, preview_widget):
-        try:
-            preview_widget.cleanup()
-            self.clip_layout.removeWidget(preview_widget)
-            self.preview_widgets.remove(preview_widget)
-            preview_widget.deleteLater()
-            self.clip_count -= 1
-            logging.info("Removed a clip.")
-        except Exception as e:
-            logging.exception("Error removing clip: %s", e)
-            QMessageBox.critical(self, "Removal Error", "Failed to remove the clip properly.")
-        if self.clip_count == 0:
-            self.plus_label.show()
 
     def importFootage(self):
         try:
@@ -637,7 +613,6 @@ class DroneVideoEditor(QMainWindow):
         self.progress_bar.show()
         self.progress_bar.setValue(0)
         self.thread = QThread()
-        from workers import AIWorker
         self.worker = AIWorker(operation, num_clips)
         self.worker.moveToThread(self.thread)
         self.thread.started.connect(self.worker.run)
@@ -663,14 +638,26 @@ class DroneVideoEditor(QMainWindow):
         self.runAITask("AI Smart Reframe")
 
     def detectScenes(self):
+        # --- KEY CHANGE: If imported_items is empty, try to fetch from current timeline.
         if not self.imported_items:
             logging.warning("No clips available for scene detection.")
-            QMessageBox.warning(self, "No Clips", "Please import clips before running scene detection.")
-            return
+            # Attempt to gather from the current timeline:
+            timeline = self.backend.get_current_timeline()
+            if timeline:
+                timeline_clips = timeline.GetItemListInTrack("video", 1)
+                if timeline_clips:
+                    logging.info("Detected %d clip(s) from existing timeline.", len(timeline_clips))
+                    self.imported_items.extend(timeline_clips)
+                else:
+                    QMessageBox.warning(self, "No Clips", "No clips are found in the current Resolve timeline.")
+                    return
+            else:
+                QMessageBox.warning(self, "No Clips", "Please import clips or load them into Resolve before running scene detection.")
+                return
+
         self.progress_bar.show()
         self.progress_bar.setValue(0)
         self.scene_thread = QThread()
-        from workers import SceneDetectionWorker
         self.scene_worker = SceneDetectionWorker(self.imported_items)
         self.scene_worker.moveToThread(self.scene_thread)
         self.scene_thread.started.connect(self.scene_worker.run)
@@ -775,76 +762,54 @@ class DroneVideoEditor(QMainWindow):
         dialog = ExportDialog(self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             export_settings = dialog.getExportSettings()
-            self.settings["export_format"] = export_settings["export_format"]
-            logging.info("Exporting Video in %s format at %s resolution.",
-                         self.settings["export_format"], self.settings["export_resolution"])
-            if export_settings.get("batch_export"):
-                total_clips = len(self.preview_widgets)
-                if total_clips == 0:
-                    QMessageBox.warning(self, "Batch Export", "No clips to export.")
-                    return
-                self.progress_bar.show()
-                self.progress_bar.setValue(0)
-                self.thread = QThread()
-                from workers import BatchExportWorker
-                self.batch_export_worker = BatchExportWorker(total_clips)
-                self.batch_export_worker.moveToThread(self.thread)
-                self.thread.started.connect(self.batch_export_worker.run)
-                self.batch_export_worker.progress.connect(self.progress_bar.setValue)
-                self.batch_export_worker.finished.connect(self.thread.quit)
-                self.batch_export_worker.finished.connect(self.batch_export_worker.deleteLater)
-                self.thread.finished.connect(self.thread.deleteLater)
-                self.batch_export_worker.finished.connect(lambda: logging.info("Batch export completed."))
-                self.batch_export_worker.finished.connect(lambda: self.progress_bar.hide())
-                self.thread.start()
-                return
-
-            timeline = self.backend.get_current_timeline()
-            if not timeline:
-                logging.error("No timeline found. Create a timeline before exporting.")
-                QMessageBox.warning(self, "Export Error", "No timeline found. Please create one before exporting.")
-                return
-
-            render_settings = {
-                "TargetDir": export_settings["export_location"],
-                "Format": self.settings["export_format"],
-                "Resolution": self.settings["export_resolution"],
-            }
-            if export_settings.get("watermark"):
-                render_settings["WatermarkPath"] = export_settings["watermark"]
-            success = self.backend.export_video(render_settings)
-            if not success:
-                QMessageBox.critical(self, "Render Error", "Failed to start rendering. Check your render settings.")
-            
+            logging.info("Export settings: %s", export_settings)
             self.progress_bar.show()
             self.progress_bar.setValue(0)
-            self.thread = QThread()
-            from workers import ExportWorker
-            self.export_worker = ExportWorker()
-            self.export_worker.moveToThread(self.thread)
-            self.thread.started.connect(self.export_worker.run)
-            self.export_worker.progress.connect(self.progress_bar.setValue)
-            self.export_worker.finished.connect(self.thread.quit)
-            self.export_worker.finished.connect(self.export_worker.deleteLater)
-            self.thread.finished.connect(self.thread.deleteLater)
-            self.export_worker.finished.connect(lambda: logging.info("Export completed."))
-            self.export_worker.finished.connect(lambda: self.progress_bar.hide())
-            self.thread.start()
-        else:
-            logging.info("Export cancelled.")
 
-if __name__ == '__main__':
-    from PyQt6.QtWidgets import QApplication
-    import sys
-    backend = None
-    try:
-        from backend import ResolveController
-        backend = ResolveController()
-    except Exception as e:
-        logging.critical("Fatal error initializing backend: %s", e)
-        sys.exit("A fatal error occurred. Check the log for details.")
+            if export_settings.get("batch_export"):
+                self.batchThread = QThread()
+                self.batchWorker = BatchExportWorker(len(self.preview_widgets))
+                self.batchWorker.moveToThread(self.batchThread)
+                self.batchThread.started.connect(self.batchWorker.run)
+                self.batchWorker.progress.connect(self.progress_bar.setValue)
+                self.batchWorker.finished.connect(self.batchThread.quit)
+                self.batchWorker.finished.connect(self.batchWorker.deleteLater)
+                self.batchThread.finished.connect(self.batchThread.deleteLater)
+                self.batchWorker.finished.connect(lambda: self.progress_bar.hide())
+                self.batchThread.start()
+            else:
+                self.exportThread = QThread()
+                self.exportWorker = ExportWorker()
+                self.exportWorker.moveToThread(self.exportThread)
+                self.exportThread.started.connect(self.exportWorker.run)
+                self.exportWorker.progress.connect(self.progress_bar.setValue)
+                self.exportWorker.finished.connect(self.exportThread.quit)
+                self.exportWorker.finished.connect(self.exportWorker.deleteLater)
+                self.exportThread.finished.connect(self.exportThread.deleteLater)
+                self.exportWorker.finished.connect(lambda: self.progress_bar.hide())
+                self.exportThread.start()
 
-    app = QApplication(sys.argv)
-    editor = DroneVideoEditor(backend, {})
-    editor.show()
-    sys.exit(app.exec())
+    def addClipPreview(self, file_path):
+        if self.plus_label.isVisible():
+            self.plus_label.hide()
+        preview_widget = VideoPreviewWidget(file_path)
+        preview_widget.remove_button.clicked.connect(lambda: self.removeClip(preview_widget))
+        row = self.clip_count // 4
+        col = self.clip_count % 4
+        self.clip_layout.addWidget(preview_widget, row, col)
+        self.preview_widgets.append(preview_widget)
+        self.clip_count += 1
+        # Optionally call the backend to import media:
+        self.backend.import_media([file_path])
+
+    def removeClip(self, preview_widget):
+        try:
+            preview_widget.cleanup()
+            self.clip_layout.removeWidget(preview_widget)
+            self.preview_widgets.remove(preview_widget)
+            preview_widget.deleteLater()
+            self.clip_count -= 1
+            logging.info("Removed a clip.")
+        except Exception as e:
+            logging.exception("Error removing clip: %s", e)
+            QMessageBox.critical(self, "Removal Error", "Failed to remove the clip properly.")

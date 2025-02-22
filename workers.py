@@ -15,13 +15,11 @@ class AIWorker(QObject):
         try:
             total_steps = 100
             for i in range(total_steps + 1):
-                # ## CHANGED: reduce UI event spamming
                 if i % 5 == 0:
                     delay_ms = int((0.005 * self.num_clips + random.random() * 0.005) * 1000)
                     QThread.msleep(delay_ms)
                     self.progress.emit(i)
                 else:
-                    # Minimal sleep to avoid full CPU usage
                     QThread.msleep(1)
         except Exception as e:
             logging.exception("Exception in AIWorker during '%s': %s", self.operation, e)
@@ -36,7 +34,6 @@ class ExportWorker(QObject):
         try:
             total_steps = 100
             for i in range(total_steps + 1):
-                # ## CHANGED: reduce event frequency
                 if i % 5 == 0:
                     delay_ms = int((0.01 + random.random() * 0.01) * 1000)
                     QThread.msleep(delay_ms)
@@ -83,17 +80,31 @@ class SceneDetectionWorker(QObject):
         new_clips = []
         total_items = len(self.imported_items)
         progress_counter = 0
-        for item in self.imported_items:
-            if not hasattr(item, "GetClipProperty"):
-                logging.warning("Skipping invalid item in scene detection: %s", type(item))
-                progress_counter += 1
-                self.progress.emit(int((progress_counter / total_items) * 100))
-                continue
 
+        for item in self.imported_items:
             try:
+                # If it’s a TimelineItem, we need to fetch its MediaPoolItem
+                # because TimelineItem doesn't have GetClipProperty()
+                if hasattr(item, "GetMediaPoolItem"):
+                    # GetMediaPoolItem can return None if it’s offline or unlinked
+                    media_pool_item = item.GetMediaPoolItem()
+                    if media_pool_item:
+                        item = media_pool_item
+                    else:
+                        logging.warning("Skipping timeline item with no associated MediaPoolItem.")
+                        progress_counter += 1
+                        self.progress.emit(int((progress_counter / total_items) * 100))
+                        continue
+
+                # Now item should be a MediaPoolItem. If not, skip it.
+                if not hasattr(item, "GetClipProperty"):
+                    logging.warning("Skipping invalid item in scene detection: %s", type(item))
+                    progress_counter += 1
+                    self.progress.emit(int((progress_counter / total_items) * 100))
+                    continue
+
                 # For demonstration, random duration between 20 and 60 seconds
                 duration = random.randint(20, 60)
-                # Create random scene splits
                 t1 = random.randint(2, duration - 2)
                 t2 = random.randint(2, duration - 2)
                 scene_changes = sorted([0, t1, t2, duration])
@@ -111,17 +122,13 @@ class SceneDetectionWorker(QObject):
                     end = scene_changes[i + 1]
                     segment_duration = end - start
                     if segment_duration < 2:
-                        logging.info(
-                            "Skipping segment from %s to %s (duration %s sec) as too short.",
-                            start, end, segment_duration
-                        )
+                        logging.info("Skipping segment from %s to %s (duration %s sec) as too short.",
+                                     start, end, segment_duration)
                         continue
                     if random.random() < 0.1:
-                        logging.info(
-                            "Skipping segment from %s to %s as dark/empty scene.",
-                            start, end
-                        )
+                        logging.info("Skipping segment from %s to %s as dark/empty scene.", start, end)
                         continue
+
                     new_clips.append((item, start, end))
                     logging.info("Created subclip for '%s': %s to %s", clip_name, start, end)
 
@@ -129,7 +136,6 @@ class SceneDetectionWorker(QObject):
                 logging.exception("Exception detecting scenes for clip: %s", e)
 
             progress_counter += 1
-            # ## CHANGED: Emit progress less often
             if progress_counter % 2 == 0:
                 self.progress.emit(int((progress_counter / total_items) * 100))
 
