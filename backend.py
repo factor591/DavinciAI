@@ -1,17 +1,29 @@
 import os
 import logging
 import time
-import DaVinciResolveScript as dvr
+import platform
+import api_helper  # Changed from relative import
+from api_helper import ResolveAPIHelper
+
+# Import DaVinciResolveScript using our improved loader
+import resolve_loader  # Changed from relative import
+dvr = resolve_loader.load_resolve_script()
 
 class ResolveController:
     def __init__(self, retries=3, delay=2):
         attempt = 0
         self.resolve = None
+        self.api_helper = None
+        
         while attempt < retries:
             try:
                 self.resolve = dvr.scriptapp("Resolve")
                 if self.resolve:
                     logging.info("Connected to DaVinci Resolve on attempt %d.", attempt + 1)
+                    
+                    # Initialize API helper to detect available methods
+                    self.api_helper = ResolveAPIHelper(self.resolve)
+                    logging.info("API Feature Support: %s", self.api_helper.get_feature_support_info())
                     break
                 else:
                     logging.warning("Attempt %d: DaVinci Resolve returned None. Is it running?", attempt + 1)
@@ -21,7 +33,7 @@ class ResolveController:
                     "Attempt %d: Exception connecting to DaVinci Resolve: %s",
                     attempt + 1, e
                 )
-                logging.warning("Check if fusionscript.dll is on PATH or bundled with your EXE.")  # ADDED
+                logging.warning("Check if fusionscript.dll is on PATH or bundled with your EXE.")
             attempt += 1
             time.sleep(delay)
 
@@ -40,17 +52,53 @@ class ResolveController:
                 or self.project_manager.CreateProject("Drone Edit Project")
             )
             self.media_pool = self.project.GetMediaPool()
+            
+            # Log more detailed environment info
+            self._log_environment_info()
         except Exception as e:
             logging.critical("Error initializing project: %s", e)
             raise
 
+    def _log_environment_info(self):
+        """Log detailed environment information for debugging."""
+        try:
+            # OS info
+            logging.info("Operating System: %s", platform.platform())
+            
+            # Python info
+            logging.info("Python Version: %s", platform.python_version())
+            
+            # Resolve info if available
+            if hasattr(self.resolve, "GetVersionString"):
+                logging.info("DaVinci Resolve Version: %s", self.resolve.GetVersionString())
+            
+            # Log relevant environment variables
+            for env_var in ["RESOLVE_SCRIPT_API", "RESOLVE_SCRIPT_LIB", "PATH"]:
+                value = os.environ.get(env_var, "Not set")
+                if env_var == "PATH":
+                    logging.debug("PATH: %s", value)
+                else:
+                    logging.info("%s: %s", env_var, value)
+                    
+            # Log current project info
+            if self.project:
+                logging.info("Current Project: %s", self.project.GetName())
+                
+        except Exception as e:
+            logging.warning("Error logging environment info: %s", e)
+
     def import_media(self, file_paths):
         try:
-            new_items = self.media_pool.ImportMedia(file_paths)
+            valid_paths = [p for p in file_paths if os.path.exists(p)]
+            if not valid_paths:
+                logging.error("None of the provided file paths exist: %s", file_paths)
+                return None
+                
+            new_items = self.media_pool.ImportMedia(valid_paths)
             if new_items:
-                logging.info("Imported media: %s", file_paths)
+                logging.info("Imported media: %s", valid_paths)
             else:
-                logging.error("Media import returned None for files: %s", file_paths)
+                logging.error("Media import returned None for files: %s", valid_paths)
             return new_items
         except Exception as e:
             logging.exception("Error importing media: %s", e)
@@ -106,15 +154,23 @@ class ResolveController:
 
     def get_clip_name(self, clip_item):
         try:
+            if not clip_item:
+                return "Unknown"
+                
             if not hasattr(clip_item, "GetClipProperty"):
                 logging.warning("Clip item of type %s lacks GetClipProperty.", type(clip_item))
                 return "Unknown"
 
-            name = (
-                clip_item.GetClipProperty("File Path")
-                or clip_item.GetClipProperty("Clip Name")
-                or clip_item.GetClipProperty("Name")
-            )
+            name = None
+            # Safely try each property
+            for prop in ["File Path", "Clip Name", "Name"]:
+                try:
+                    name = clip_item.GetClipProperty(prop)
+                    if name:
+                        break
+                except:
+                    pass
+                    
             if not name:
                 try:
                     name = clip_item.GetName()
@@ -127,17 +183,22 @@ class ResolveController:
 
     def update_timeline_with_trimmed_clips(self, new_clips):
         try:
+            if not new_clips:
+                logging.warning("No new clips provided to update timeline.")
+                return False
+                
             timeline = self.get_current_timeline()
             if not timeline:
                 logging.warning("Cannot update timeline: No current timeline found.")
                 return False
 
             logging.info("Clearing original timeline clips.")
-            remove_item_method = getattr(timeline, 'RemoveItem', None)
-            if remove_item_method and callable(remove_item_method):
-                all_clips = timeline.GetItemListInTrack("video", 1)
+            # Use API helper for version-safe method call
+            all_clips = timeline.GetItemListInTrack("video", 1)
+            
+            if self.api_helper and self.api_helper.is_method_available("timeline.RemoveItem"):
                 for c in all_clips:
-                    remove_item_method(c)
+                    self.api_helper.safe_remove_timeline_item(timeline, c)
             else:
                 logging.warning("timeline.RemoveItem is not available in this API version. Skipping old clip removal.")
 
@@ -145,12 +206,13 @@ class ResolveController:
                 clip_name = self.get_clip_name(source_clip)
                 logging.info("Appending new clip: Original clip %s, from %s to %s", clip_name, start_sec, end_sec)
 
-                can_duplicate = (
-                    hasattr(self.media_pool, "DuplicateMediaPoolItem")
-                    and callable(self.media_pool.DuplicateMediaPoolItem)
+                has_duplicate_method = (
+                    self.api_helper and 
+                    self.api_helper.is_method_available("mediaPool.DuplicateMediaPoolItem")
                 )
+                
                 trimmed_clip = None
-                if can_duplicate:
+                if has_duplicate_method:
                     try:
                         trimmed_clip = self.media_pool.DuplicateMediaPoolItem(source_clip)
                     except Exception:
@@ -179,6 +241,7 @@ class ResolveController:
             logging.warning("No timeline found to apply color/transitions.")
             return
 
+        # Apply LUT if available
         lut_path = "C:/Path/To/SomeDefaultLUT.cube"
         if os.path.exists(lut_path):
             for clip in timeline.GetItemsInTrack("video", 1):
@@ -190,26 +253,56 @@ class ResolveController:
         else:
             logging.warning("Auto LUT path not found; skipping LUT color pass.")
 
-        add_transition_method = getattr(timeline, 'AddTransition', None)
-        if add_transition_method and callable(add_transition_method):
+        # Add transitions using the API helper
+        if self.api_helper and self.api_helper.is_method_available("timeline.AddTransition"):
             video_items = timeline.GetItemListInTrack("video", 1)
             for i in range(len(video_items) - 1):
-                try:
-                    transition_result = add_transition_method(
-                        "Cross Dissolve", video_items[i], video_items[i+1], 30
-                    )
-                    if not transition_result:
-                        logging.warning(
-                            "Failed to add Cross Dissolve transition between clip %d and %d.",
-                            i, i+1
-                        )
-                except Exception as e:
-                    logging.exception(
-                        "Exception adding transition between clip %d and %d: %s",
-                        i, i+1, e
-                    )
+                self.api_helper.safe_add_transition(
+                    timeline, "Cross Dissolve", video_items[i], video_items[i+1], 30
+                )
             logging.info("Attempted to add transitions between consecutive timeline clips.")
         else:
             logging.warning(
                 "timeline.AddTransition is not available in this API version; skipping transitions."
             )
+            
+    def get_lut_path(self, lut_name):
+        """Get path to a specific LUT based on name."""
+        lut_directories = [
+            os.path.expanduser("~/Documents/Blackmagic Design/DaVinci Resolve/LUT"),
+            "C:/ProgramData/Blackmagic Design/DaVinci Resolve/Support/LUT",
+            "/Library/Application Support/Blackmagic Design/DaVinci Resolve/LUT"
+        ]
+        
+        lut_names = {
+            "Default": "Default.cube",
+            "Cinematic": "Film Look.cube",
+            "Vintage": "Vintage Film.cube"
+        }
+        
+        filename = lut_names.get(lut_name, f"{lut_name}.cube")
+        
+        for directory in lut_directories:
+            path = os.path.join(directory, filename)
+            if os.path.exists(path):
+                return path
+                
+        logging.warning(f"LUT '{lut_name}' not found in standard locations.")
+        return None
+        
+    def fusion_automation(self):
+        """Apply advanced Fusion effects to the current timeline."""
+        try:
+            timeline = self.get_current_timeline()
+            if not timeline:
+                logging.warning("No timeline found for Fusion automation.")
+                return False
+                
+            # This is just a stub - expanded implementation would depend on
+            # what Fusion effects you want to apply
+            logging.info("Fusion automation not fully implemented yet.")
+            return True
+            
+        except Exception as e:
+            logging.exception("Error in fusion_automation: %s", e)
+            return False
