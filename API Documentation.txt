@@ -1,0 +1,376 @@
+# Comprehensive API Documentation for DaVinci Resolve Integration
+
+## Overview
+This API facilitates the integration with DaVinci Resolve for automated video editing, media management, color grading, and export functionalities. The API is built using Python and leverages the DaVinci Resolve scripting API to provide a clean interface for programmatic control of video editing workflows.
+
+## Prerequisites
+- **DaVinci Resolve Studio** installed (recommended) or DaVinci Resolve Free
+- **Python 3.6+** (64-bit recommended)
+- **Lua 5.1** support (for certain advanced Fusion operations)
+- Ensure that `fusionscript.dll` is accessible (Windows) or the equivalent shared library for macOS/Linux
+- Set environment variables:
+  - **Windows:** 
+    - `RESOLVE_SCRIPT_API=%PROGRAMDATA%\Blackmagic Design\DaVinci Resolve\Support\Developer\Scripting`
+    - `RESOLVE_SCRIPT_LIB=C:\Program Files\Blackmagic Design\DaVinci Resolve\fusionscript.dll`
+  - **Mac:** 
+    - `RESOLVE_SCRIPT_API=/Library/Application Support/Blackmagic Design/DaVinci Resolve/Developer/Scripting`
+    - `RESOLVE_SCRIPT_LIB=/Applications/DaVinci Resolve/DaVinci Resolve.app/Contents/Libraries/Fusion/fusionscript.so`
+  - **Linux:** 
+    - `RESOLVE_SCRIPT_API=/opt/resolve/Developer/Scripting`
+    - `RESOLVE_SCRIPT_LIB=/opt/resolve/libs/Fusion/fusionscript.so`
+
+## Installation Requirements
+
+### Setting Up Path and Environment Variables
+
+#### Windows
+1. Add DaVinci Resolve directory to PATH:
+   ```
+   C:\Program Files\Blackmagic Design\DaVinci Resolve
+   ```
+
+2. Set environment variables:
+   - Open System Properties > Advanced > Environment Variables
+   - Create new user variables:
+     - `RESOLVE_SCRIPT_LIB=C:\Program Files\Blackmagic Design\DaVinci Resolve\fusionscript.dll`
+     - `RESOLVE_SCRIPT_API=%PROGRAMDATA%\Blackmagic Design\DaVinci Resolve\Support\Developer\Scripting`
+
+#### macOS
+1. Add to your shell profile (`.bash_profile` or `.zshrc`):
+   ```bash
+   export PATH="$PATH:/Applications/DaVinci Resolve/DaVinci Resolve.app/Contents/Libraries/Fusion"
+   export RESOLVE_SCRIPT_LIB="/Applications/DaVinci Resolve/DaVinci Resolve.app/Contents/Libraries/Fusion/fusionscript.so"
+   export RESOLVE_SCRIPT_API="/Library/Application Support/Blackmagic Design/DaVinci Resolve/Developer/Scripting"
+   ```
+
+#### Linux
+1. Add to your `.bashrc`:
+   ```bash
+   export PATH="$PATH:/opt/resolve/libs/Fusion"
+   export RESOLVE_SCRIPT_LIB="/opt/resolve/libs/Fusion/fusionscript.so"
+   export RESOLVE_SCRIPT_API="/opt/resolve/Developer/Scripting"
+   ```
+
+### Package Dependencies
+```
+pip install PyQt6
+```
+
+## Initialization
+To use the API, instantiate the `ResolveController` class:
+
+```python
+from backend import ResolveController
+
+# Default initialization with 3 retries
+resolve_api = ResolveController()
+
+# Custom initialization with more retries and longer delay
+resolve_api = ResolveController(retries=5, delay=3)
+```
+
+This will attempt to connect to DaVinci Resolve and initialize project management and media pool access. The `retries` parameter controls how many connection attempts will be made, and `delay` specifies the time in seconds between attempts.
+
+## Core Functionalities
+
+### 1. Connection and Environment
+
+#### Get Environment Information
+The API automatically logs detailed environment information during initialization, including:
+- Operating system details
+- Python version
+- DaVinci Resolve version
+- Relevant environment variables
+- Current project information
+
+#### API Version Compatibility
+The API includes a helper class to detect available methods based on the DaVinci Resolve version:
+
+```python
+# Automatically created during initialization
+api_helper = resolve_api.api_helper
+
+# Check if a specific method is available
+if api_helper.is_method_available("timeline.AddTransition"):
+    # Use the method
+    
+# Get a summary of supported features
+feature_support = api_helper.get_feature_support_info()
+print(feature_support)  # {'Transitions': True, 'Timeline Item Removal': True, ...}
+```
+
+### 2. Media Management
+
+#### Import Media
+```python
+# Import media files
+media_items = resolve_api.import_media([
+    "path/to/video.mp4", 
+    "path/to/image.jpg"
+])
+
+# Returns a list of MediaPoolItem objects or None if import fails
+```
+
+Parameters:
+- `file_paths` (list): List of file paths to import
+
+Returns:
+- List of MediaPoolItem objects that were imported
+- `None` if import fails
+
+#### Get Clip Name
+```python
+clip_name = resolve_api.get_clip_name(media_clip)
+```
+
+Parameters:
+- `clip_item` (MediaPoolItem): Media pool item to get name for
+
+Returns:
+- String with the clip name or "Unknown" if not retrievable
+
+### 3. Timeline Management
+
+#### Create Timeline
+```python
+timeline = resolve_api.create_timeline(media_clips)
+```
+
+Parameters:
+- `clips` (list): List of MediaPoolItem objects to add to timeline
+
+Returns:
+- Timeline object if creation is successful
+- `None` if timeline creation fails
+
+#### Get Current Timeline
+```python
+timeline = resolve_api.get_current_timeline()
+```
+
+Returns:
+- Current Timeline object
+- `None` if no timeline is currently active
+
+#### Update Timeline with Trimmed Clips
+```python
+success = resolve_api.update_timeline_with_trimmed_clips(new_clips)
+```
+
+Parameters:
+- `new_clips` (list): List of tuples containing (source_clip, start_sec, end_sec)
+
+Returns:
+- `True` if timeline was updated successfully
+- `False` if update fails
+
+### 4. Color Grading & LUTs
+
+#### Apply LUT to Timeline
+```python
+resolve_api.apply_lut("path/to/lut.cube")
+```
+
+Parameters:
+- `lut_path` (str): Path to the .cube file to apply
+
+#### Get LUT Path
+```python
+lut_path = resolve_api.get_lut_path("Cinematic")
+```
+
+Parameters:
+- `lut_name` (str): Name of the LUT to find
+
+Returns:
+- Full file path to the LUT if found
+- `None` if LUT is not found in standard locations
+
+#### Auto Apply Color and Transitions
+```python
+resolve_api.auto_apply_color_and_transitions(timeline)
+```
+
+Parameters:
+- `timeline` (Timeline): Timeline object to apply color and transitions to
+
+Automatically applies default LUT and transitions between consecutive clips.
+
+### 5. Timecode and Technical Tools
+
+#### Convert Seconds to Timecode
+```python
+timecode = resolve_api.seconds_to_timecode(75.5, fps=24)
+# Returns "00:01:15:12" for 75.5 seconds at 24fps
+```
+
+Parameters:
+- `seconds` (float): Seconds to convert
+- `fps` (int, optional): Frames per second, defaults to 30
+
+Returns:
+- Timecode string in format "HH:MM:SS:FF"
+
+### 6. Fusion Automation
+
+#### Apply Fusion Effects
+```python
+success = resolve_api.fusion_automation()
+```
+
+Returns:
+- `True` if Fusion effects were applied successfully
+- `False` if automation fails
+
+## Extended API Helper Functions
+
+The API includes an `APIHelper` class to handle version compatibility:
+
+### Safe Add Transition
+```python
+success = api_helper.safe_add_transition(
+    timeline, 
+    transition_type="Cross Dissolve", 
+    clip1=clip1, 
+    clip2=clip2, 
+    duration=30
+)
+```
+
+Parameters:
+- `timeline` (Timeline): Timeline object
+- `transition_type` (str): Type of transition ("Cross Dissolve", "Dip to Color", etc.)
+- `clip1` (TimelineItem): First clip
+- `clip2` (TimelineItem): Second clip
+- `duration` (int): Duration in frames
+
+Returns:
+- `True` if transition was added successfully
+- `False` if method is not available or fails
+
+### Safe Remove Timeline Item
+```python
+success = api_helper.safe_remove_timeline_item(timeline, item)
+```
+
+Parameters:
+- `timeline` (Timeline): Timeline object
+- `item` (TimelineItem): Item to remove
+
+Returns:
+- `True` if item was removed successfully
+- `False` if method is not available or fails
+
+## Error Handling & Logging
+
+Logging is enabled via `config.py` and logs critical actions, warnings, and errors in `drone_video_editor.log`.
+
+### Log Levels
+- `DEBUG`: Detailed information, typically useful only for diagnosing problems
+- `INFO`: Confirmation that things are working as expected
+- `WARNING`: Indication that something unexpected happened or may happen
+- `ERROR`: Due to a more serious problem, the software has not been able to perform a function
+- `CRITICAL`: A serious error, indicating that the program itself may be unable to continue running
+
+### Example Log Output
+```
+2023-05-14 10:23:45 - INFO - ResolveController - Connected to DaVinci Resolve on attempt 1.
+2023-05-14 10:23:46 - INFO - _log_environment_info - Operating System: Windows-10-10.0.19042-SP0
+2023-05-14 10:23:46 - INFO - _log_environment_info - Python Version: 3.9.5
+2023-05-14 10:23:46 - INFO - _log_environment_info - DaVinci Resolve Version: 17.4.0
+```
+
+## Complete Example Usage
+
+```python
+from backend import ResolveController
+import logging
+
+# Initialize the API with Resolve
+try:
+    resolve_api = ResolveController()
+    
+    # Import media files
+    media_items = resolve_api.import_media(["drone_footage.mp4", "aerial_view.mp4"])
+    if not media_items:
+        logging.error("Failed to import media")
+        exit(1)
+    
+    # Create a timeline with the imported clips
+    timeline = resolve_api.create_timeline(media_items)
+    if not timeline:
+        logging.error("Failed to create timeline")
+        exit(1)
+    
+    # Apply a cinematic LUT
+    lut_path = resolve_api.get_lut_path("Cinematic")
+    if lut_path:
+        resolve_api.apply_lut(lut_path)
+    
+    # Run AI scene detection (if implemented in UI)
+    # This would typically be called from the UI via the SceneDetectionWorker
+    
+    # Apply automatic color grading and transitions
+    resolve_api.auto_apply_color_and_transitions(timeline)
+    
+    # Apply Fusion effects
+    resolve_api.fusion_automation()
+    
+    # Export would typically be handled by the UI's export dialog
+    # and involve calling the Resolve Export API directly
+    
+    logging.info("Workflow completed successfully")
+    
+except Exception as e:
+    logging.critical("Fatal error: %s", e)
+```
+
+## Troubleshooting
+
+### Common Issues
+
+#### Unable to Connect to DaVinci Resolve
+- Ensure DaVinci Resolve is running before executing any scripts
+- Verify that `fusionscript.dll` is in your PATH
+- Check that environment variables are set correctly
+
+#### Missing API Methods
+- Some methods are only available in specific versions of DaVinci Resolve
+- Use the `api_helper.is_method_available()` method to check before calling
+
+#### Media Import Fails
+- Ensure file paths are valid and files exist
+- Check that file formats are supported by DaVinci Resolve
+
+#### Timeline Operations Fail
+- Make sure a project is open in DaVinci Resolve
+- Verify that the timeline exists and is accessible
+
+### Debug Mode
+To enable more detailed logging:
+
+```python
+import logging
+logging.getLogger('').setLevel(logging.DEBUG)
+```
+
+## API Version Compatibility
+
+| Feature | Resolve 16.x | Resolve 17.x | Resolve 18.x |
+|---------|--------------|--------------|--------------|
+| Basic Media Import | ✓ | ✓ | ✓ |
+| Timeline Creation | ✓ | ✓ | ✓ |
+| AddTransition | Limited | ✓ | ✓ |
+| RemoveItem | Limited | ✓ | ✓ |
+| Fusion Titles | - | ✓ | ✓ |
+| Subtitles from Audio | - | - | ✓ |
+| Audio Transcription | - | - | ✓ |
+
+## Notes
+- Ensure DaVinci Resolve is running before executing any scripts
+- Some methods may require administrator privileges to function properly
+- API availability depends on the installed version of DaVinci Resolve
+- Always check API helper for method availability before calling version-specific functions
+
+For additional details, refer to the official [DaVinci Resolve scripting documentation](https://documents.blackmagicdesign.com/DeveloperManuals/DaVinci_Resolve_Developer_Documentation.pdf).
